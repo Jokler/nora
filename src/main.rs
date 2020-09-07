@@ -3,6 +3,7 @@ use std::ffi::OsString;
 use xcb::ffi::*;
 use xcb::*;
 
+use anyhow::{anyhow, Context, Result};
 use structopt::clap::AppSettings::TrailingVarArg;
 use structopt::StructOpt;
 
@@ -20,14 +21,24 @@ struct Args {
 }
 
 fn main() {
+    if let Err(e) = run() {
+        eprintln!("ERROR: {}", e);
+        e.chain()
+            .skip(1)
+            .for_each(|cause| eprintln!("because: {}", cause));
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let mut args = Args::from_args();
 
-    let (conn, preferred_screen) = xcb::base::Connection::connect(None).unwrap();
+    let (conn, preferred_screen) = xcb::base::Connection::connect(None).context("Failed to connect to X serevr")?;
     let screen = conn
         .get_setup()
         .roots()
         .nth(preferred_screen as usize)
-        .unwrap();
+        .ok_or(anyhow!("screen {} not found", preferred_screen))?;
 
     let window_handle = conn.generate_id();
     let (width, height) = (screen.width_in_pixels(), screen.height_in_pixels());
@@ -53,17 +64,16 @@ fn main() {
         height,
         ALL_PLANES,
     )
-    .get_reply()
-    .unwrap();
+    .get_reply().context("Failed to capture screen")?;
     let image_data = image.data();
 
     // Handle allows adjusting of drawing settings
     let gc_handle = conn.generate_id();
     create_gc(&conn, gc_handle, pixmap_handle, &[]);
 
-    let max_request_size = xcb::big_requests::enable(&conn)
+    let max_request_length = xcb::big_requests::enable(&conn)
         .get_reply()
-        .unwrap()
+        .context("Failed to get maximum request length")?
         .maximum_request_length();
 
     // TODO Verify that this is always correct
@@ -72,7 +82,7 @@ fn main() {
     let req_size = 18;
 
     // If there is too much data it has to be split up
-    if image_data.len() < max_request_size as usize {
+    if image_data.len() < max_request_length as usize {
         put_image(
             &conn,
             IMAGE_FORMAT_Z_PIXMAP as u8,
@@ -87,7 +97,7 @@ fn main() {
             image_data,
         );
     } else {
-        let mut rows = (max_request_size as usize - req_size - 4) / stride;
+        let mut rows = (max_request_length as usize - req_size - 4) / stride;
         if rows <= 0 {
             panic!("{} rows to transmit", rows)
         };
@@ -128,9 +138,7 @@ fn main() {
     free_gc(&conn, gc_handle);
 
     // Check if the image transmission went well
-    if let Err(e) = conn.has_error() {
-        eprintln!("Conn Error: {}", e);
-    }
+    conn.has_error().context("Found error after sending the image to X")?;
 
     // Setup window with the pixmap as a background
     let window_setup = [
@@ -178,7 +186,7 @@ fn main() {
 
     let atom = intern_atom(&conn, false, "_NET_WM_BYPASS_COMPOSITOR")
         .get_reply()
-        .unwrap()
+        .context("Failed to get compositor bypass atom")?
         .atom();
 
     change_property(
@@ -208,8 +216,11 @@ fn main() {
         XCB_CURRENT_TIME,
     );
 
-    std::process::Command::new(args.executable.remove(0))
+    let executable = args.executable.remove(0);
+    std::process::Command::new(executable.clone())
         .args(args.executable)
         .status()
-        .unwrap();
+        .with_context(|| anyhow!("Failed to execute {}", executable.to_string_lossy()))?;
+
+    Ok(())
 }
