@@ -1,10 +1,27 @@
+use std::ffi::OsString;
+
 use xcb::ffi::*;
 use xcb::*;
 
-// TODO Why?
+use structopt::clap::AppSettings::TrailingVarArg;
+use structopt::StructOpt;
+
+// Sets all bits to 1 - mask everything
 const ALL_PLANES: u32 = !0;
 
+#[derive(StructOpt, Debug)]
+#[structopt(
+    global_settings = &[TrailingVarArg],)
+]
+struct Args {
+    #[structopt(required = true)]
+    /// Executable with arguments to run
+    executable: Vec<OsString>,
+}
+
 fn main() {
+    let mut args = Args::from_args();
+
     let (conn, preferred_screen) = xcb::base::Connection::connect(None).unwrap();
     let screen = conn
         .get_setup()
@@ -26,7 +43,6 @@ fn main() {
         height,
     );
 
-    
     let image = get_image(
         &conn,
         IMAGE_FORMAT_Z_PIXMAP as u8,
@@ -43,12 +59,7 @@ fn main() {
 
     // Handle allows adjusting of drawing settings
     let gc_handle = conn.generate_id();
-    create_gc(
-        &conn,
-        gc_handle,
-        pixmap_handle,
-        &[],
-    );
+    create_gc(&conn, gc_handle, pixmap_handle, &[]);
 
     let max_request_size = xcb::big_requests::enable(&conn)
         .get_reply()
@@ -190,10 +201,15 @@ fn main() {
     // Ensure that commands have completed
     conn.flush();
 
-    set_input_focus(&conn, XCB_INPUT_FOCUS_PARENT as u8, window_handle, XCB_CURRENT_TIME);
+    set_input_focus(
+        &conn,
+        XCB_INPUT_FOCUS_PARENT as u8,
+        window_handle,
+        XCB_CURRENT_TIME,
+    );
 
-    // TODO Add options to change programs used
-    let output = std::process::Command::new("hacksaw").output().unwrap();
-    let geometry = std::str::from_utf8(&output.stdout).unwrap().trim();
-    std::process::Command::new("shotgun").arg("-g").arg(geometry).status().unwrap();
+    std::process::Command::new(args.executable.remove(0))
+        .args(args.executable)
+        .status()
+        .unwrap();
 }
