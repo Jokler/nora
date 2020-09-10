@@ -9,8 +9,13 @@ license = "GPL-3.0-or-later"
 keywords = ["x11", "screenshot"]
 categories = ["command-line-utilities"]
 edition = "2018"
+build = "build.rs"
 
 [dependencies]
 xcb = "0.9.0"
 structopt = "0.3.17"
 anyhow = "1.0.32"
+libc = "0.2.76"
+
+[build-dependencies]
+pkg-config = "0.3.8"

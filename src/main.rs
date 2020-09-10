@@ -10,6 +10,9 @@ use anyhow::{anyhow, Context, Result};
 use structopt::clap::AppSettings::TrailingVarArg;
 use structopt::StructOpt;
 
+mod ffi;
+use ffi::Display;
+
 // Sets all bits to 1 - mask everything
 const ALL_PLANES: u32 = !0;
 
@@ -18,6 +21,9 @@ const ALL_PLANES: u32 = !0;
     global_settings = &[TrailingVarArg],)
 ]
 struct Args {
+    #[structopt(short, long)]
+    /// Add the cursor to the frozen image
+    show_cursor: bool,
     #[structopt(required = true)]
     /// Executable with arguments to run
     executable: Vec<OsString>,
@@ -59,6 +65,13 @@ fn run() -> Result<()> {
         height,
     );
 
+    let cursor = if args.show_cursor {
+        let d = Display::open(None);
+        Some(d.get_cursor_image()?)
+    } else {
+        None
+    };
+
     let image = get_image(
         &conn,
         IMAGE_FORMAT_Z_PIXMAP as u8,
@@ -71,7 +84,33 @@ fn run() -> Result<()> {
     )
     .get_reply()
     .context("Failed to capture screen")?;
-    let image_data = image.data();
+    let mut image_data = image.data().to_owned();
+
+    if let Some(cursor) = cursor {
+        let pixels = cursor.pixels();
+        let cursorx = cursor.x() as usize - cursor.xhot() as usize;
+        let cursory = cursor.y() as usize - cursor.yhot() as usize;
+
+        for x in 0.max(cursorx)..(width as usize).min(cursorx + cursor.width() as usize) {
+            for y in 0.max(cursory)..(height as usize).min(cursory + cursor.height() as usize) {
+                let cx: usize = x - cursorx;
+                let cy: usize = y - cursory;
+
+                let istart = (y * width as usize + x) as usize * 4;
+                let cstart = cy * cursor.width() as usize + cx;
+
+                let alpha = pixels[cstart].a as f32 / 255.0;
+
+                let old_b = image_data[istart] as f32 * (1.0 - alpha);
+                let old_g = image_data[istart + 1] as f32 * (1.0 - alpha);
+                let old_r = image_data[istart + 2] as f32 * (1.0 - alpha);
+
+                image_data[istart] = (old_b + pixels[cstart].b as f32 * alpha) as u8;
+                image_data[istart + 1] = (old_g + pixels[cstart].g as f32 * alpha) as u8;
+                image_data[istart + 2] = (old_r + pixels[cstart].r as f32 * alpha) as u8;
+            }
+        }
+    }
 
     // Handle allows adjusting of drawing settings
     let gc_handle = conn.generate_id();
@@ -100,7 +139,7 @@ fn run() -> Result<()> {
             0,
             0,
             image.depth(),
-            image_data,
+            &image_data,
         );
     } else {
         let mut rows = (max_request_length as usize - req_size - 4) / stride;
