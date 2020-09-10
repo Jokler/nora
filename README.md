@@ -11,3 +11,8 @@ nora maim -s image.png
 # Running a bash command
 nora bash -c 'shotgun -g $(hacksaw)'
 ```
+
+## Installing
+On Arch Linux the AUR package `nora` can be used.
+Anywhere else binaries can be found under the [releases](https://github.com/Jokler/nora/releases)
+section or `cargo install nora` can be used to install nora through cargo.
