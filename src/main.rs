@@ -1,7 +1,10 @@
 use std::ffi::OsString;
 
-use xcb::ffi::*;
-use xcb::*;
+use xcb::{
+    change_property, configure_window, create_gc, create_pixmap, create_window, free_gc,
+    free_pixmap, get_image, intern_atom, map_window, put_image, set_input_focus, CW_BACK_PIXMAP,
+    IMAGE_FORMAT_Z_PIXMAP,
+};
 
 use anyhow::{anyhow, Context, Result};
 use structopt::clap::AppSettings::TrailingVarArg;
@@ -33,7 +36,8 @@ fn main() {
 fn run() -> Result<()> {
     let mut args = Args::from_args();
 
-    let (conn, preferred_screen) = xcb::base::Connection::connect(None).context("Failed to connect to X serevr")?;
+    let (conn, preferred_screen) =
+        xcb::base::Connection::connect(None).context("Failed to connect to X serevr")?;
     let screen = conn
         .get_setup()
         .roots()
@@ -64,7 +68,8 @@ fn run() -> Result<()> {
         height,
         ALL_PLANES,
     )
-    .get_reply().context("Failed to capture screen")?;
+    .get_reply()
+    .context("Failed to capture screen")?;
     let image_data = image.data();
 
     // Handle allows adjusting of drawing settings
@@ -138,17 +143,18 @@ fn run() -> Result<()> {
     free_gc(&conn, gc_handle);
 
     // Check if the image transmission went well
-    conn.has_error().context("Found error after sending the image to X")?;
+    conn.has_error()
+        .context("Found error after sending the image to X")?;
 
     // Setup window with the pixmap as a background
     let window_setup = [
-        (XCB_CW_OVERRIDE_REDIRECT, 1),
+        (xcb::ffi::XCB_CW_OVERRIDE_REDIRECT, 1),
         (CW_BACK_PIXMAP, pixmap_handle),
     ];
 
     create_window(
         &conn,
-        XCB_COPY_FROM_PARENT as u8,
+        xcb::ffi::XCB_COPY_FROM_PARENT as u8,
         window_handle,
         screen.root(),
         0,
@@ -156,8 +162,8 @@ fn run() -> Result<()> {
         width,
         height,
         0,
-        XCB_WINDOW_CLASS_INPUT_OUTPUT as u16,
-        XCB_WINDOW_CLASS_COPY_FROM_PARENT,
+        xcb::ffi::XCB_WINDOW_CLASS_INPUT_OUTPUT as u16,
+        xcb::ffi::XCB_WINDOW_CLASS_COPY_FROM_PARENT,
         &window_setup,
     );
 
@@ -166,20 +172,20 @@ fn run() -> Result<()> {
     // Setup window properties
     change_property(
         &conn,
-        XCB_PROP_MODE_REPLACE as u8,
+        xcb::ffi::XCB_PROP_MODE_REPLACE as u8,
         window_handle,
-        XCB_ATOM_WM_NAME,
-        XCB_ATOM_STRING,
+        xcb::ffi::XCB_ATOM_WM_NAME,
+        xcb::ffi::XCB_ATOM_STRING,
         8,
         "fullscreen-viewer".as_bytes(),
     );
 
     change_property(
         &conn,
-        XCB_PROP_MODE_REPLACE as u8,
+        xcb::ffi::XCB_PROP_MODE_REPLACE as u8,
         window_handle,
-        XCB_ATOM_WM_CLASS,
-        XCB_ATOM_STRING,
+        xcb::ffi::XCB_ATOM_WM_CLASS,
+        xcb::ffi::XCB_ATOM_STRING,
         8,
         "fullscreen-viewer\0fullscreen-viewer\0".as_bytes(),
     );
@@ -191,10 +197,10 @@ fn run() -> Result<()> {
 
     change_property(
         &conn,
-        XCB_PROP_MODE_REPLACE as u8,
+        xcb::ffi::XCB_PROP_MODE_REPLACE as u8,
         window_handle,
         atom,
-        XCB_ATOM_CARDINAL,
+        xcb::ffi::XCB_ATOM_CARDINAL,
         32,
         &[1],
     );
@@ -203,7 +209,10 @@ fn run() -> Result<()> {
     map_window(&conn, window_handle);
 
     // Put window on top
-    let values = [(XCB_CONFIG_WINDOW_STACK_MODE as u16, XCB_STACK_MODE_ABOVE)];
+    let values = [(
+        xcb::ffi::XCB_CONFIG_WINDOW_STACK_MODE as u16,
+        xcb::ffi::XCB_STACK_MODE_ABOVE,
+    )];
     configure_window(&conn, window_handle, &values);
 
     // Ensure that commands have completed
@@ -211,9 +220,9 @@ fn run() -> Result<()> {
 
     set_input_focus(
         &conn,
-        XCB_INPUT_FOCUS_PARENT as u8,
+        xcb::ffi::XCB_INPUT_FOCUS_PARENT as u8,
         window_handle,
-        XCB_CURRENT_TIME,
+        xcb::ffi::XCB_CURRENT_TIME,
     );
 
     let executable = args.executable.remove(0);
