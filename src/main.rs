@@ -1,9 +1,8 @@
 use std::ffi::OsString;
 
-use xcb::{
-    change_property, configure_window, create_gc, create_pixmap, create_window, free_gc,
-    free_pixmap, get_image, intern_atom, map_window, put_image, set_input_focus, CW_BACK_PIXMAP,
-    IMAGE_FORMAT_Z_PIXMAP,
+use x11::xlib::{
+    CurrentTime, PropModeReplace, RevertToParent, ZPixmap, XA_CARDINAL, XA_STRING, XA_WM_CLASS,
+    XA_WM_NAME,
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -43,50 +42,24 @@ fn main() {
 fn run() -> Result<()> {
     let mut args = Args::from_args();
 
-    let (conn, preferred_screen) =
-        xcb::base::Connection::connect(None).context("Failed to connect to X server")?;
-    let screen = conn
-        .get_setup()
-        .roots()
-        .nth(preferred_screen as usize)
-        .ok_or(anyhow!("screen {} not found", preferred_screen))?;
+    let display = Display::open(None);
+    let screen = display.screen(0);
+    let root = screen.root;
+    let (width, height) = (screen.width, screen.height);
 
-    let window_handle = conn.generate_id();
-    let (width, height) = (screen.width_in_pixels(), screen.height_in_pixels());
+    let pixmap_handle =
+        display.create_pixmap(root, width as u32, height as u32, screen.root_depth as u32);
 
-    // Image container
-    let pixmap_handle = conn.generate_id();
-    create_pixmap(
-        &conn,
-        screen.root_depth(),
-        pixmap_handle,
-        screen.root(),
-        width,
-        height,
-    );
+    let mut image = display.get_image(root, 0, 0, width, height, ALL_PLANES, ZPixmap);
 
-    let cursor = if args.show_cursor {
-        let d = Display::open(None);
-        Some(d.get_cursor_image()?)
-    } else {
-        None
-    };
+    let len = (image.width * image.height * image.bits_per_pixel / 8) as usize;
+    let image_data = unsafe { std::slice::from_raw_parts_mut(image.data as *mut _, len) };
 
-    let image = get_image(
-        &conn,
-        IMAGE_FORMAT_Z_PIXMAP as u8,
-        screen.root(),
-        0,
-        0,
-        width,
-        height,
-        ALL_PLANES,
-    )
-    .get_reply()
-    .context("Failed to capture screen")?;
-    let mut image_data = image.data().to_owned();
-
-    if let Some(cursor) = cursor {
+    // Blend cursor onto the image
+    if args.show_cursor {
+        let cursor = display
+            .get_cursor_image()
+            .context("Failed to get cursor image")?;
         let pixels = cursor.pixels();
         let cursorx = cursor.x() as usize - cursor.xhot() as usize;
         let cursory = cursor.y() as usize - cursor.yhot() as usize;
@@ -112,158 +85,69 @@ fn run() -> Result<()> {
         }
     }
 
-    // Handle allows adjusting of drawing settings
-    let gc_handle = conn.generate_id();
-    create_gc(&conn, gc_handle, pixmap_handle, &[]);
+    let gc_handle = display.create_gc(pixmap_handle);
 
-    let max_request_length = xcb::big_requests::enable(&conn)
-        .get_reply()
-        .context("Failed to get maximum request length")?
-        .maximum_request_length();
+    display.put_image(
+        pixmap_handle,
+        gc_handle,
+        &mut image,
+        0,
+        0,
+        0,
+        0,
+        width as u32,
+        height as u32,
+    );
 
-    // TODO Verify that this is always correct
-    let stride = image_data.len() / height as usize;
-    // Where does this come from?
-    let req_size = 18;
-
-    // If there is too much data it has to be split up
-    if image_data.len() < max_request_length as usize {
-        put_image(
-            &conn,
-            IMAGE_FORMAT_Z_PIXMAP as u8,
-            pixmap_handle,
-            gc_handle,
-            width,
-            height,
-            0,
-            0,
-            0,
-            image.depth(),
-            &image_data,
-        );
-    } else {
-        let mut rows = (max_request_length as usize - req_size - 4) / stride;
-        if rows <= 0 {
-            panic!("{} rows to transmit", rows)
-        };
-
-        let mut start: usize = 0;
-        let mut height = height as usize;
-        let mut dst_y = 0;
-        loop {
-            if rows > height {
-                rows = height;
-            }
-
-            let length = rows as usize * stride;
-
-            put_image(
-                &conn,
-                IMAGE_FORMAT_Z_PIXMAP as u8,
-                pixmap_handle,
-                gc_handle,
-                width,
-                rows as u16,
-                0,
-                dst_y,
-                0,
-                image.depth(),
-                &image_data[start..start + length],
-            );
-
-            height -= rows;
-            dst_y += rows as i16;
-            start += length;
-
-            if height == 0 {
-                break;
-            }
-        }
-    }
-    free_gc(&conn, gc_handle);
-
-    // Check if the image transmission went well
-    conn.has_error()
-        .context("Found error after sending the image to X")?;
-
-    // Setup window with the pixmap as a background
-    let window_setup = [
-        (xcb::ffi::XCB_CW_OVERRIDE_REDIRECT, 1),
-        (CW_BACK_PIXMAP, pixmap_handle),
-    ];
-
-    create_window(
-        &conn,
-        xcb::ffi::XCB_COPY_FROM_PARENT as u8,
-        window_handle,
-        screen.root(),
+    let window_handle = display.create_window(
+        root as i32,
         0,
         0,
         width,
         height,
         0,
-        xcb::ffi::XCB_WINDOW_CLASS_INPUT_OUTPUT as u16,
-        xcb::ffi::XCB_WINDOW_CLASS_COPY_FROM_PARENT,
-        &window_setup,
+        screen.root_depth,
+        x11::xlib::InputOutput,
+        pixmap_handle,
     );
 
-    free_pixmap(&conn, pixmap_handle);
+    display.free_gc(gc_handle);
+    display.free_pixmap(pixmap_handle);
 
     // Setup window properties
-    change_property(
-        &conn,
-        xcb::ffi::XCB_PROP_MODE_REPLACE as u8,
+    display.change_property(
         window_handle,
-        xcb::ffi::XCB_ATOM_WM_NAME,
-        xcb::ffi::XCB_ATOM_STRING,
-        8,
+        XA_WM_NAME,
+        XA_STRING,
+        PropModeReplace,
         "fullscreen-viewer".as_bytes(),
     );
 
-    change_property(
-        &conn,
-        xcb::ffi::XCB_PROP_MODE_REPLACE as u8,
+    display.change_property(
         window_handle,
-        xcb::ffi::XCB_ATOM_WM_CLASS,
-        xcb::ffi::XCB_ATOM_STRING,
-        8,
+        XA_WM_CLASS,
+        XA_STRING,
+        PropModeReplace,
         "fullscreen-viewer\0fullscreen-viewer\0".as_bytes(),
     );
 
-    let atom = intern_atom(&conn, false, "_NET_WM_BYPASS_COMPOSITOR")
-        .get_reply()
-        .context("Failed to get compositor bypass atom")?
-        .atom();
+    let atom = display
+        .intern_atom("_NET_WM_BYPASS_COMPOSITOR", false)
+        .context("Failed to get compositor bypass atom")?;
 
-    change_property(
-        &conn,
-        xcb::ffi::XCB_PROP_MODE_REPLACE as u8,
-        window_handle,
-        atom,
-        xcb::ffi::XCB_ATOM_CARDINAL,
-        32,
-        &[1],
-    );
+    display.change_property(window_handle, atom, XA_CARDINAL, PropModeReplace, &[1]);
 
     // Make window visible
-    map_window(&conn, window_handle);
+    display.map_window(window_handle);
 
     // Put window on top
-    let values = [(
-        xcb::ffi::XCB_CONFIG_WINDOW_STACK_MODE as u16,
-        xcb::ffi::XCB_STACK_MODE_ABOVE,
-    )];
-    configure_window(&conn, window_handle, &values);
+    display.set_stack_mode(window_handle, x11::xlib::Above);
 
     // Ensure that commands have completed
-    conn.flush();
+    //conn.flush();
+    display.sync(false);
 
-    set_input_focus(
-        &conn,
-        xcb::ffi::XCB_INPUT_FOCUS_PARENT as u8,
-        window_handle,
-        xcb::ffi::XCB_CURRENT_TIME,
-    );
+    display.set_input_focus(window_handle, RevertToParent, CurrentTime);
 
     let executable = args.executable.remove(0);
     std::process::Command::new(executable.clone())
