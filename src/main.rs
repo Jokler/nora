@@ -25,10 +25,11 @@ struct Args {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("ERROR: {}", e);
+        eprint!("ERROR: {}", e);
         e.chain()
             .skip(1)
-            .for_each(|cause| eprintln!("because: {}", cause));
+            .for_each(|cause| eprint!(": {}", cause));
+        eprintln!();
         std::process::exit(1);
     }
 }
@@ -37,7 +38,7 @@ fn run() -> Result<()> {
     let mut args = Args::from_args();
 
     let (conn, preferred_screen) =
-        xcb::base::Connection::connect(None).context("Failed to connect to X serevr")?;
+        xcb::base::Connection::connect(None).context("Failed to connect to X server")?;
     let screen = conn
         .get_setup()
         .roots()
