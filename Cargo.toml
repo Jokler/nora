@@ -15,7 +15,7 @@ build = "build.rs"
 structopt = "0.3.17"
 anyhow = "1.0.32"
 libc = "0.2.76"
-x11 = { path = "../x11-rs/x11/" }
+x11 = "2.19.1"
 
 [build-dependencies]
 pkg-config = "0.3.8"
