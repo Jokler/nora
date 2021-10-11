@@ -14,5 +14,8 @@ nora bash -c 'shotgun -g $(hacksaw)'
 
 ## Installing
 On Arch Linux the AUR package `nora` can be used.
+
+On NetBSD `nora` is available through the main pkgsrc repository thanks to 0323pin.
+
 Anywhere else binaries can be found under the [releases](https://github.com/Jokler/nora/releases)
 section or `cargo install nora` can be used to install nora through cargo.
