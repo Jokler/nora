@@ -12,10 +12,10 @@ edition = "2018"
 build = "build.rs"
 
 [dependencies]
-structopt = "0.3.17"
-anyhow = "1.0.32"
-libc = "0.2.76"
-x11 = "2.19.1"
+structopt = "0.3.26"
+anyhow = "1.0.71"
+libc = "0.2.146"
+x11 = "2.21.0"
 
 [build-dependencies]
-pkg-config = "0.3.8"
+pkg-config = "0.3.27"
