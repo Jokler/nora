@@ -1,7 +1,7 @@
 {
   description = "Screen Freezer";
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   };
   outputs = {
     self,
