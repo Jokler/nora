@@ -1,5 +1,6 @@
 {
   pkgs,
+  lib,
   rustPlatform,
   fetchFromGitHub,
 }:
@@ -18,4 +19,14 @@ rustPlatform.buildRustPackage rec {
 
   nativeBuildInputs = [pkgs.pkg-config];
   buildInputs = with pkgs; [xorg.libX11 xorg.libXfixes];
+
+  meta = {
+    description = "Freezes the screen for other programs";
+    homepage = "https://github.com/Jokler/nora/";
+    license = lib.licenses.gpl3Plus;
+    maintainers = with lib.maintainers; [
+      jokler
+    ];
+    platforms = ["x86_64-linux"];
+  };
 }
