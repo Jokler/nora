@@ -18,7 +18,7 @@ rustPlatform.buildRustPackage rec {
   cargoHash = "sha256-Pu2fnQxTCmjEoFxT7VaZ4N/xu1BK+EfWH5+GVSfg8mk=";
 
   nativeBuildInputs = [pkgs.pkg-config];
-  buildInputs = with pkgs; [xorg.libX11 xorg.libXfixes];
+  buildInputs = with pkgs; [libX11 libXfixes];
 
   meta = {
     description = "Freezes the screen for other programs";
